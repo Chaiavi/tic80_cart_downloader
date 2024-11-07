@@ -144,33 +144,6 @@ def download_tic_file(url, folder_path):
         tree.write(gamelist_path, encoding="utf-8", xml_declaration=True)
     logger.info(f"Updated or created gamelist.xml with entry for: {tic_filename}")
 
-def download_tic_file2(url, folder_path):
-    logger.debug(f"Accessing cartridge page for download: {url}")
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-    except requests.RequestException as e:
-        logger.error(f"Failed to access cartridge page {url}: {e}")
-        return
-    soup = BeautifulSoup(response.content, 'html.parser')
-    tic_link = soup.select_one('a[href$=".tic"]')
-    if tic_link:
-        tic_url = f'https://tic80.com{tic_link.get("href")}'
-        tic_filename = tic_url.split('/')[-1]
-        logger.debug(f"Downloading .tic file from: {tic_url}")
-        try:
-            tic_response = requests.get(tic_url)
-            tic_response.raise_for_status()
-            os.makedirs(folder_path, exist_ok=True)
-            file_path = os.path.join(folder_path, tic_filename)
-            with open(file_path, 'wb') as file:
-                file.write(tic_response.content)
-            logger.info(f"Downloaded and saved file: {file_path}")
-        except requests.RequestException as e:
-            logger.error(f"Failed to download .tic file from {tic_url}: {e}")
-    else:
-        logger.warning(f"No .tic download link found on page: {url}")
-
 class App:
     def __init__(self, root):
         self.root = root
