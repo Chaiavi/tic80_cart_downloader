@@ -6,6 +6,8 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter import filedialog
 import threading
+import xml.etree.ElementTree as ET
+import xml.dom.minidom as minidom
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -48,6 +50,101 @@ def get_cartridge_links(url):
     return cartridge_links
 
 def download_tic_file(url, folder_path):
+    logger.debug(f"Accessing cartridge page for download: {url}")
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        logger.error(f"Failed to access cartridge page {url}: {e}")
+        return
+
+    soup = BeautifulSoup(response.content, 'html.parser')
+    
+    # Download the .tic file
+    tic_link = soup.select_one('a[href$=".tic"]')
+    if tic_link:
+        tic_url = f'https://tic80.com{tic_link.get("href")}'
+        tic_filename = tic_url.split('/')[-1]
+        logger.debug(f"Downloading .tic file from: {tic_url}")
+        try:
+            tic_response = requests.get(tic_url)
+            tic_response.raise_for_status()
+            os.makedirs(folder_path, exist_ok=True)
+            file_path = os.path.join(folder_path, tic_filename)
+            with open(file_path, 'wb') as file:
+                file.write(tic_response.content)
+            logger.info(f"Downloaded and saved file: {file_path}")
+        except requests.RequestException as e:
+            logger.error(f"Failed to download .tic file from {tic_url}: {e}")
+            return
+    else:
+        logger.warning(f"No .tic download link found on page: {url}")
+        return
+
+    # Download metadata (GIF image, description, and author)
+    image_meta = soup.select_one('meta[property="og:image"]')
+    description_meta = soup.select_one('meta[name="description"]')
+    author_meta = soup.select_one('meta[name="author"]')
+
+    if image_meta and 'content' in image_meta.attrs:
+        image_url = image_meta['content']
+        image_filename = os.path.splitext(tic_filename)[0] + os.path.splitext(image_url)[1]
+        images_folder = os.path.join(folder_path, 'images')
+        os.makedirs(images_folder, exist_ok=True)
+        image_path = os.path.join(images_folder, image_filename)
+        try:
+            image_response = requests.get(image_url)
+            image_response.raise_for_status()
+            with open(image_path, 'wb') as img_file:
+                img_file.write(image_response.content)
+            logger.info(f"Downloaded and saved image: {image_path}")
+        except requests.RequestException as e:
+            logger.error(f"Failed to download image from {image_url}: {e}")
+    else:
+        logger.warning("No image metadata found")
+
+    description = description_meta['content'] if description_meta and 'content' in description_meta.attrs else "No description available"
+    author = author_meta['content'].replace('by ', '') if author_meta and 'content' in author_meta.attrs else "Unknown author"
+
+    # Update gamelist.xml
+    gamelist_path = os.path.join(folder_path, 'gamelist.xml')
+    game_name = os.path.splitext(tic_filename)[0].replace('_', ' ')
+
+    # Load or create XML structure
+    if os.path.exists(gamelist_path):
+        tree = ET.parse(gamelist_path)
+        root = tree.getroot()
+    else:
+        root = ET.Element('gameList')
+        tree = ET.ElementTree(root)
+
+    # Add game entry
+    game_element = ET.SubElement(root, 'game')
+    ET.SubElement(game_element, 'path').text = f'./{tic_filename}'
+    ET.SubElement(game_element, 'name').text = game_name
+    ET.SubElement(game_element, 'desc').text = description
+    ET.SubElement(game_element, 'developer').text = author
+    ET.SubElement(game_element, 'image').text = f'./images/{image_filename}'
+
+    # Format XML with indentation (Python 3.9+)
+    try:
+        ET.indent(tree, space="  ", level=0)
+    except AttributeError:
+        # Manual pretty-printing if `ET.indent` is not available
+        from xml.dom import minidom
+        xml_str = ET.tostring(root, encoding='utf-8')
+        pretty_xml = minidom.parseString(xml_str).toprettyxml(indent="  ")
+        pretty_xml = "\n".join(line for line in pretty_xml.splitlines() if line.strip())
+
+        # Write to file
+        with open(gamelist_path, "w", encoding="utf-8") as f:
+            f.write(pretty_xml)
+    else:
+        # Write formatted XML directly
+        tree.write(gamelist_path, encoding="utf-8", xml_declaration=True)
+    logger.info(f"Updated or created gamelist.xml with entry for: {tic_filename}")
+
+def download_tic_file2(url, folder_path):
     logger.debug(f"Accessing cartridge page for download: {url}")
     try:
         response = requests.get(url)
